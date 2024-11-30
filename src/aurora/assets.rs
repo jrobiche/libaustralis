@@ -18,6 +18,7 @@
  */
 // TODO define tests
 // TODO document functions
+// TODO improve logging
 // TODO remove print methods
 use self::AssetType::*;
 use crate::utils::{GenericResult, TextureEndian, TextureFormat};

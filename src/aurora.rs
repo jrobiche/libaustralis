@@ -18,7 +18,9 @@
  */
 // TODO define tests
 // TODO document functions
+// TODO improve logging
 pub mod assets;
+pub mod ftp;
 
 use std::ffi::OsStr;
 use std::path::Path;
@@ -28,6 +30,7 @@ use crate::utils::{
 };
 use assets::{AssetPackEntry, AssetType, Header};
 
+// TODO move to aurora/assets.rs
 #[derive(Clone, Debug)]
 pub struct Asset {
     pub header: Header,
