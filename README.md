@@ -13,6 +13,6 @@ This code is licensed under [GPL-3.0-or-later](./COPYING).
 | Status | Feature |
 | :---: | --- |
 | :white_check_mark: | Create, read, and modify Aurora asset files |
-| :x: | FTP client that is compatible with the Aurora FTP server |
+| :white_check_mark: | FTP client that is compatible with the Aurora FTP server |
 | :x: | HTTP client that is compatible with the Aurora HTTP server and REST API |
 | :x: | Read and update Aurora SQLite databases |
