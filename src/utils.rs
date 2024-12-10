@@ -96,6 +96,7 @@ pub fn apply_swizzle(
     }
 }
 
+// TODO rename to create_parent_directories
 pub fn create_parent_dirs<P: AsRef<OsStr> + AsRef<Path>>(file_path: &P) -> GenericResult<()> {
     match Path::new(file_path).parent() {
         Some(parent_path) => match std::fs::create_dir_all(parent_path) {
