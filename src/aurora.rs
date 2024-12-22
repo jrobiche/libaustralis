@@ -18,3 +18,5 @@
  */
 pub mod assets;
 pub mod ftp;
+pub mod http;
+pub mod http_schemas;
