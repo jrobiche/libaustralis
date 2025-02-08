@@ -21,6 +21,7 @@
 // TODO improve logging
 // TODO improve error handling/bubbling
 // TODO verify response codes
+// TODO GET /screenshot
 use crate::aurora::http_schemas;
 use crate::utils::GenericResult;
 use log::error;

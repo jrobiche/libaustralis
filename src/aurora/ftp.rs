@@ -19,13 +19,12 @@
 // TODO define tests
 // TODO document functions
 // TODO improve logging
-use std::ffi::OsStr;
 use std::io::Write;
 use std::path::Path;
 
 use log::{debug, error, warn};
 
-use crate::utils::{create_parent_dirs, GenericResult};
+use crate::utils::{create_parent_directories, GenericResult};
 
 #[derive(Clone, Debug)]
 pub struct FtpClient {
@@ -117,11 +116,11 @@ impl FtpClient {
         result
     }
 
-    pub fn download_directory<P: AsRef<OsStr> + AsRef<Path>>(
+    pub fn download_directory(
         &self,
         ftp_stream: Option<suppaftp::FtpStream>,
         remote_dir: &str,
-        local_dir: P,
+        local_dir: &Path,
     ) -> GenericResult<()> {
         let quit_stream = ftp_stream.is_none();
         let mut stream = match ftp_stream {
@@ -135,11 +134,11 @@ impl FtpClient {
         result
     }
 
-    pub fn download_file<P: AsRef<OsStr> + AsRef<Path>>(
+    pub fn download_file(
         &self,
         ftp_stream: Option<suppaftp::FtpStream>,
         remote_file: &str,
-        local_file: P,
+        local_file: &Path,
     ) -> GenericResult<()> {
         let quit_stream = ftp_stream.is_none();
         let mut stream = match ftp_stream {
@@ -205,10 +204,10 @@ impl FtpClient {
         result
     }
 
-    pub fn upload_directory<P: AsRef<OsStr> + AsRef<Path>>(
+    pub fn upload_directory(
         &self,
         ftp_stream: Option<suppaftp::FtpStream>,
-        local_dir: P,
+        local_dir: &Path,
         remote_dir: &str,
     ) -> GenericResult<()> {
         let quit_stream = ftp_stream.is_none();
@@ -223,10 +222,10 @@ impl FtpClient {
         result
     }
 
-    pub fn upload_file<P: AsRef<OsStr> + AsRef<Path>>(
+    pub fn upload_file(
         &self,
         ftp_stream: Option<suppaftp::FtpStream>,
-        local_file: P,
+        local_file: &Path,
         remote_file: &str,
     ) -> GenericResult<()> {
         let quit_stream = ftp_stream.is_none();
@@ -268,7 +267,7 @@ impl FTPPath {
         }
     }
 
-    pub fn as_string(&self) -> String {
+    pub fn to_string(&self) -> String {
         return format!("/{}", self.parts.join("/"));
     }
 
@@ -309,26 +308,26 @@ fn create_directory(ftp_stream: &mut suppaftp::FtpStream, remote_dir: &str) -> G
     let mut new_remote_path = FTPPath::new();
     for directory in remote_path.parts() {
         new_remote_path.push(&directory);
-        match list_entry(ftp_stream, &new_remote_path.as_string())? {
+        match list_entry(ftp_stream, &new_remote_path.to_string())? {
             Some(x) => {
                 // entry already exists, error if it is not a directory
                 if !x.is_directory() {
                     warn!(
                         "Create Directory: Cannot create directory '{}' because the path '{}' exists and is not a directory.",
-                        remote_path.as_string(), new_remote_path.as_string()
+                        remote_path.to_string(), new_remote_path.to_string()
                     );
                     return Err(format!(
                         "Cannot create directory '{}' because the path '{}' exists and is not a directory.",
-                        remote_path.as_string(), new_remote_path.as_string()
+                        remote_path.to_string(), new_remote_path.to_string()
                     ).into());
                 }
             }
             None => {
                 debug!(
                     "Create Directory: Calling mkdir('{}')",
-                    new_remote_path.as_string()
+                    new_remote_path.to_string()
                 );
-                ftp_stream.mkdir(new_remote_path.as_string())?;
+                ftp_stream.mkdir(new_remote_path.to_string())?;
             }
         }
     }
@@ -338,9 +337,9 @@ fn create_directory(ftp_stream: &mut suppaftp::FtpStream, remote_dir: &str) -> G
 fn delete_directory(ftp_stream: &mut suppaftp::FtpStream, remote_dir: &str) -> GenericResult<()> {
     debug!("Delete Directory: '{}'", remote_dir);
     let mut remote_path = FTPPath::from_str(remote_dir);
-    for entry in list_directory_contents(ftp_stream, &remote_path.as_string())? {
+    for entry in list_directory_contents(ftp_stream, &remote_path.to_string())? {
         remote_path.push(entry.name());
-        let new_remote_path = remote_path.as_string();
+        let new_remote_path = remote_path.to_string();
         remote_path.pop();
         if entry.is_file() {
             delete_file(ftp_stream, &new_remote_path)?;
@@ -351,9 +350,9 @@ fn delete_directory(ftp_stream: &mut suppaftp::FtpStream, remote_dir: &str) -> G
     }
     debug!(
         "Delete Directory: Calling rmdir('{}')",
-        remote_path.as_string()
+        remote_path.to_string()
     );
-    match ftp_stream.rmdir(remote_path.as_string()) {
+    match ftp_stream.rmdir(remote_path.to_string()) {
         Ok(_) => Ok(()),
         Err(e) => Err(e.into()),
     }
@@ -363,35 +362,35 @@ fn delete_file(ftp_stream: &mut suppaftp::FtpStream, remote_file: &str) -> Gener
     debug!("Delete File: '{}'", remote_file);
     debug!(
         "Delete File: Calling rm('{}')",
-        FTPPath::from_str(remote_file).as_string()
+        FTPPath::from_str(remote_file).to_string()
     );
-    match ftp_stream.rm(FTPPath::from_str(remote_file).as_string()) {
+    match ftp_stream.rm(FTPPath::from_str(remote_file).to_string()) {
         Ok(_) => Ok(()),
         Err(e) => Err(e.into()),
     }
 }
 
-fn download_directory<P: AsRef<OsStr> + AsRef<Path>>(
+fn download_directory(
     ftp_stream: &mut suppaftp::FtpStream,
     remote_dir: &str,
-    local_path: P,
+    local_path: &Path,
 ) -> GenericResult<()> {
     // mirror contents of `remote_path` into `local_path`
     // if a directory already exists at `local_path`, it will be
     // deleted before remote files are downloaded into it.
     debug!("Download Directory: '{}'", remote_dir);
-    std::fs::create_dir_all(&local_path)?;
-    if std::path::Path::new(&local_path).is_file() {
+    std::fs::create_dir_all(local_path)?;
+    if local_path.is_file() {
         return Err("Destination already exists and is a file.".into());
     }
-    if std::path::Path::new(&local_path).is_dir() {
-        std::fs::remove_dir_all(&local_path)?;
+    if local_path.is_dir() {
+        std::fs::remove_dir_all(local_path)?;
     }
     let mut remote_path = FTPPath::from_str(remote_dir);
-    for entry in list_directory_contents(ftp_stream, &remote_path.as_string())? {
-        let new_local_path = Path::new(&local_path).join(entry.name());
+    for entry in list_directory_contents(ftp_stream, &remote_path.to_string())? {
+        let new_local_path = local_path.join(entry.name());
         remote_path.push(entry.name());
-        let new_remote_path = remote_path.as_string();
+        let new_remote_path = remote_path.to_string();
         remote_path.pop();
         if entry.is_directory() {
             download_directory(ftp_stream, &new_remote_path, &new_local_path)?;
@@ -403,29 +402,29 @@ fn download_directory<P: AsRef<OsStr> + AsRef<Path>>(
     Ok(())
 }
 
-fn download_file<P: AsRef<OsStr> + AsRef<Path>>(
+fn download_file(
     ftp_stream: &mut suppaftp::FtpStream,
     remote_path: &str,
-    local_path: P,
+    local_path: &Path,
 ) -> GenericResult<()> {
     debug!("Download File: '{}'", remote_path);
     // prepare local directory that file will be downloaded into
-    create_parent_dirs(&local_path)?;
-    if std::path::Path::new(&local_path).is_file() {
-        std::fs::remove_file(&local_path)?;
+    create_parent_directories(local_path)?;
+    if local_path.is_file() {
+        std::fs::remove_file(local_path)?;
     }
-    if std::path::Path::new(&local_path).is_dir() {
+    if local_path.is_dir() {
         return Err("Destination already exists and is a directory.".into());
     }
     let mut file = std::fs::OpenOptions::new()
         .create_new(true)
         .append(true)
-        .open(&local_path)?;
+        .open(local_path)?;
     debug!(
         "Download File: calling retr('{}')",
-        FTPPath::from_str(remote_path).as_string()
+        FTPPath::from_str(remote_path).to_string()
     );
-    ftp_stream.retr(&FTPPath::from_str(remote_path).as_string(), |stream| {
+    ftp_stream.retr(&FTPPath::from_str(remote_path).to_string(), |stream| {
         let mut buf: Vec<u8> = vec![0; 4096];
         loop {
             let bytes_read = match stream.read(&mut buf) {
@@ -458,9 +457,9 @@ fn list_directory_contents(
     let original_cwd = ftp_stream.pwd()?;
     debug!(
         "List Directory Contents: calling cwd('{}')",
-        FTPPath::from_str(remote_path).as_string()
+        FTPPath::from_str(remote_path).to_string()
     );
-    ftp_stream.cwd(FTPPath::from_str(remote_path).as_string())?;
+    ftp_stream.cwd(FTPPath::from_str(remote_path).to_string())?;
     let mut contents: Vec<suppaftp::list::File> = Vec::new();
     debug!("List Directory Contents: calling list(None)");
     let entries = match ftp_stream.list(None) {
@@ -496,11 +495,11 @@ fn list_entry(
         None => {
             error!(
                 "List Entry: Cannot list entry at path '{}' because parent is 'None'.",
-                ftp_path.as_string()
+                ftp_path.to_string()
             );
             return Err(format!(
                 "Cannot list entry at path '{}' because parent is 'None'.",
-                ftp_path.as_string()
+                ftp_path.to_string()
             )
             .into());
         }
@@ -510,11 +509,11 @@ fn list_entry(
         None => {
             error!(
                 "List Entry: Cannot list entry at path '{}' because file name is 'None'.",
-                ftp_path.as_string()
+                ftp_path.to_string()
             );
             return Err(format!(
                 "Cannot list entry at path '{}' because file name is 'None'.",
-                ftp_path.as_string()
+                ftp_path.to_string()
             )
             .into());
         }
@@ -545,24 +544,24 @@ fn rename(
     dest_path.push(new_name);
     debug!(
         "Rename: calling rename('{}', '{}')",
-        src_path.as_string(),
-        dest_path.as_string()
+        src_path.to_string(),
+        dest_path.to_string()
     );
-    match ftp_stream.rename(src_path.as_string(), dest_path.as_string()) {
+    match ftp_stream.rename(src_path.to_string(), dest_path.to_string()) {
         Ok(_) => Ok(()),
         Err(e) => Err(e.into()),
     }
 }
 
-fn upload_directory<P: AsRef<OsStr> + AsRef<Path>>(
+fn upload_directory(
     ftp_stream: &mut suppaftp::FtpStream,
-    local_dir: P,
+    local_dir: &Path,
     remote_dir: &str,
 ) -> GenericResult<()> {
     debug!("Upload Directory: '{}'", remote_dir);
     create_directory(ftp_stream, remote_dir)?;
     let mut new_remote_path = FTPPath::from_str(remote_dir);
-    for entry in std::fs::read_dir(std::path::Path::new(&local_dir))? {
+    for entry in std::fs::read_dir(local_dir)? {
         let path = entry?.path();
         let file_name = match path.file_name() {
             None => {
@@ -591,23 +590,23 @@ fn upload_directory<P: AsRef<OsStr> + AsRef<Path>>(
         };
         new_remote_path.push(file_name);
         if path.is_dir() {
-            upload_directory(ftp_stream, path, &new_remote_path.as_string())?;
+            upload_directory(ftp_stream, &path, &new_remote_path.to_string())?;
         } else {
-            upload_file(ftp_stream, path, &new_remote_path.as_string())?;
+            upload_file(ftp_stream, &path, &new_remote_path.to_string())?;
         }
         new_remote_path.pop();
     }
     Ok(())
 }
 
-fn upload_file<P: AsRef<OsStr> + AsRef<Path>>(
+fn upload_file(
     ftp_stream: &mut suppaftp::FtpStream,
-    local_path: P,
+    local_path: &Path,
     remote_file: &str,
 ) -> GenericResult<()> {
     debug!("Upload File: '{}'", remote_file);
     let remote_path = FTPPath::from_str(remote_file);
-    let file_len_bytes = std::fs::metadata(&local_path)?.len();
+    let file_len_bytes = std::fs::metadata(local_path)?.len();
     let mut file = std::fs::OpenOptions::new()
         .create(false)
         .read(true)
@@ -618,9 +617,9 @@ fn upload_file<P: AsRef<OsStr> + AsRef<Path>>(
     }
     debug!(
         "Upload File: calling put_file('{}')",
-        remote_path.as_string()
+        remote_path.to_string()
     );
-    let bytes_written = ftp_stream.put_file(remote_path.as_string(), &mut file)?;
+    let bytes_written = ftp_stream.put_file(remote_path.to_string(), &mut file)?;
     if bytes_written != file_len_bytes {
         error!(
             "Upload File: Expected to write {} bytes to remote but wrote {}.",
