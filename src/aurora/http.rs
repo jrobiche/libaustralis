@@ -21,7 +21,6 @@
 // TODO improve logging
 // TODO improve error handling/bubbling
 // TODO verify response codes
-// TODO GET /screenshot
 use crate::aurora::http_schemas;
 use crate::utils::GenericResult;
 use log::error;
@@ -53,7 +52,7 @@ impl HttpClient {
         &self,
         token: Option<&str>,
         endpoint: &str,
-        params: Vec<(&str, &str)>,
+        query: Option<&Vec<(&str, &str)>>,
     ) -> GenericResult<reqwest::Response> {
         let client = reqwest::Client::new();
         let req = client.delete(format!("http://{}:{}{}", self.ip, self.port, endpoint));
@@ -61,14 +60,18 @@ impl HttpClient {
             Some(t) => req.bearer_auth(t),
             _ => req,
         };
-        match req.form(&params).send().await {
+        let req = match &query {
+            Some(q) => req.query(q),
+            _ => req,
+        };
+        match req.send().await {
             Ok(x) => Ok(x),
             Err(err) => {
                 error!(
-                    "Failed to make POST request to '{}'. Got the following error: {}",
+                    "Failed to make DELETE request to '{}'. Got the following error: {}",
                     endpoint, err
                 );
-                Err(format!("Failed to make POST request to '{}'.", endpoint).into())
+                Err(format!("Failed to make DELETE request to '{}'.", endpoint).into())
             }
         }
     }
@@ -366,7 +369,7 @@ impl HttpClient {
     // screencapture endpoints
     pub async fn delete_screencapture(&self, token: Option<&str>, uuid: &str) -> GenericResult<()> {
         let params = vec![("uuid", uuid)];
-        match self.delete(token, "/screencapture", params).await {
+        match self.delete(token, "/screencapture", Some(&params)).await {
             Ok(_) => Ok(()),
             Err(err) => {
                 error!(
@@ -485,9 +488,9 @@ impl HttpClient {
     pub async fn get_systemlink_bandwidth(
         &self,
         token: Option<&str>,
-    ) -> GenericResult<http_schemas::Systemlink> {
+    ) -> GenericResult<http_schemas::SystemlinkBandwidth> {
         let resp = self.get(token, "/systemlink/bandwidth", None).await?;
-        match resp.json::<http_schemas::Systemlink>().await {
+        match resp.json::<http_schemas::SystemlinkBandwidth>().await {
             Ok(x) => Ok(x),
             Err(err) => {
                 error!(
@@ -626,7 +629,7 @@ impl HttpClient {
 
     pub async fn get_title_live_cache(&self, token: Option<&str>) -> GenericResult<String> {
         let resp = self.get(token, "/title/live/cache", None).await?;
-        match resp.json::<String>().await {
+        match resp.text().await {
             Ok(x) => Ok(x),
             Err(err) => {
                 error!(
