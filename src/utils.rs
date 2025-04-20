@@ -1,5 +1,5 @@
 /**
- * Copyright 2024 jrobiche
+ * Copyright 2025 jrobiche
  *
  * This file is part of libaustralis.
  *
@@ -18,7 +18,7 @@
  */
 // TODO define tests
 // TODO document functions
-use std::ffi::OsStr;
+// TODO move texture related items to new file?
 use std::path::Path;
 
 pub type GenericError = Box<dyn std::error::Error + Send + Sync + 'static>;
@@ -33,8 +33,49 @@ pub enum TextureEndian {
 }
 
 impl TextureEndian {
-    pub fn u32(&self) -> u32 {
+    pub fn display(&self) -> &str {
+        match self {
+            TextureEndian::EndianNone => "TextureEndian::EndianNone",
+            TextureEndian::Endian8in16 => "TextureEndian::Endian8in16",
+            TextureEndian::Endian8in32 => "TextureEndian::Endian8in32",
+            TextureEndian::Endian16in32 => "TextureEndian::Endian16in32",
+        }
+    }
+
+    pub fn from_u32(value: u32) -> GenericResult<TextureEndian> {
+        let endian = match value {
+            0 => Self::EndianNone,
+            1 => Self::Endian8in16,
+            2 => Self::Endian8in32,
+            3 => Self::Endian16in32,
+            _ => {
+                let msg = format!("Could not convert value '{}' to TextureEndian.", value);
+                return Err(msg.into());
+            }
+        };
+        Ok(endian)
+    }
+
+    pub fn from_usize(value: usize) -> GenericResult<TextureEndian> {
+        let endian = match value {
+            0 => Self::EndianNone,
+            1 => Self::Endian8in16,
+            2 => Self::Endian8in32,
+            3 => Self::Endian16in32,
+            _ => {
+                let msg = format!("Could not convert value '{}' to TextureEndian.", value);
+                return Err(msg.into());
+            }
+        };
+        Ok(endian)
+    }
+
+    pub fn to_u32(&self) -> u32 {
         *self as u32
+    }
+
+    pub fn to_usize(&self) -> usize {
+        *self as usize
     }
 }
 
@@ -45,13 +86,62 @@ pub enum TextureFormat {
 }
 
 impl TextureFormat {
-    pub fn u32(&self) -> u32 {
+    pub fn bytes_per_pixel(&self) -> usize {
+        match self {
+            TextureFormat::RGBA8 => 4,
+            TextureFormat::BC3 => 1,
+        }
+    }
+
+    pub fn bytes_per_pixel_u32(&self) -> u32 {
+        match self {
+            TextureFormat::RGBA8 => 4 as u32,
+            TextureFormat::BC3 => 1 as u32,
+        }
+    }
+
+    pub fn display(&self) -> &str {
+        match self {
+            TextureFormat::RGBA8 => "TextureFormat::RGBA8",
+            TextureFormat::BC3 => "TextureFormat::BC3",
+        }
+    }
+
+    pub fn from_u32(value: u32) -> GenericResult<TextureFormat> {
+        let endian = match value {
+            6 => Self::RGBA8,
+            20 => Self::BC3,
+            _ => {
+                let msg = format!("Could not convert value '{}' to TextureFormat.", value);
+                return Err(msg.into());
+            }
+        };
+        Ok(endian)
+    }
+
+    pub fn from_usize(value: usize) -> GenericResult<TextureFormat> {
+        let endian = match value {
+            6 => Self::RGBA8,
+            20 => Self::BC3,
+            _ => {
+                let msg = format!("Could not convert value '{}' to TextureFormat.", value);
+                return Err(msg.into());
+            }
+        };
+        Ok(endian)
+    }
+
+    pub fn to_u32(&self) -> u32 {
         *self as u32
+    }
+
+    pub fn to_usize(&self) -> usize {
+        *self as usize
     }
 }
 
-pub fn apply_endian(buffer: &mut Vec<u8>, endian: TextureEndian) -> () {
-    match endian {
+pub fn apply_endian(texture_endian: TextureEndian, buffer: &mut Vec<u8>) -> () {
+    match texture_endian {
         TextureEndian::EndianNone => (),
         TextureEndian::Endian8in16 => {
             for i in (0..buffer.len()).step_by(2) {
@@ -80,24 +170,23 @@ pub fn apply_swizzle(
     swizzle_z: usize,
     swizzle_w: usize,
 ) -> () {
-    let mut r: u8;
-    let mut g: u8;
-    let mut b: u8;
-    let mut a: u8;
+    let mut x: u8;
+    let mut y: u8;
+    let mut z: u8;
+    let mut w: u8;
     for i in (0..buffer.len()).step_by(4) {
-        r = buffer[i + swizzle_x];
-        g = buffer[i + swizzle_y];
-        b = buffer[i + swizzle_z];
-        a = buffer[i + swizzle_w];
-        buffer[i] = r;
-        buffer[i + 1] = g;
-        buffer[i + 2] = b;
-        buffer[i + 3] = a;
+        x = buffer[i + swizzle_x];
+        y = buffer[i + swizzle_y];
+        z = buffer[i + swizzle_z];
+        w = buffer[i + swizzle_w];
+        buffer[i] = x;
+        buffer[i + 1] = y;
+        buffer[i + 2] = z;
+        buffer[i + 3] = w;
     }
 }
 
-// TODO rename to create_parent_directories
-pub fn create_parent_dirs<P: AsRef<OsStr> + AsRef<Path>>(file_path: &P) -> GenericResult<()> {
+pub fn create_parent_directories(file_path: &Path) -> GenericResult<()> {
     match Path::new(file_path).parent() {
         Some(parent_path) => match std::fs::create_dir_all(parent_path) {
             Ok(_) => Ok(()),
@@ -105,4 +194,10 @@ pub fn create_parent_dirs<P: AsRef<OsStr> + AsRef<Path>>(file_path: &P) -> Gener
         },
         None => Ok(()),
     }
+}
+
+pub fn image_from_be_bytes(bytes: Vec<u8>) -> GenericResult<image::DynamicImage> {
+    Ok(image::ImageReader::new(std::io::Cursor::new(bytes))
+        .with_guessed_format()?
+        .decode()?)
 }

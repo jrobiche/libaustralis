@@ -1,14 +1,19 @@
 [package]
 name = "libaustralis"
 version = "0.1.0"
+description = "A library of common structures and functions that can be used for interacting with the Aurora Xbox 360 Dashboard."
+authors = ["jrobiche"]
+license = "GPL-3.0-or-later"
+repository = "https://github.com/jrobiche/libaustralis"
 edition = "2021"
+rust-version = "1.83.0"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-image = "0.24.7"
-log = "0.4.22"
-reqwest = { version = "0.12.9", features = ["json"] }
-serde = { version = "1.0", features = ["derive"] }
-suppaftp = "6.0.5"
+image = "0.25.6"
+log = "0.4.27"
+reqwest = { version = "0.12.15", features = ["json"] }
+serde = { version = "1.0.219", features = ["derive"] }
+suppaftp = "6.2.0"
 texpresso = "2.0.1"
