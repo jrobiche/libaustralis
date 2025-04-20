@@ -20,6 +20,7 @@
 // TODO document functions
 // TODO improve logging
 // TODO remove print methods
+pub use image;
 use std::path::Path;
 
 use self::AssetType::*;
