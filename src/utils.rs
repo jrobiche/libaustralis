@@ -197,7 +197,7 @@ pub fn create_parent_directories(file_path: &Path) -> GenericResult<()> {
 }
 
 pub fn image_from_be_bytes(bytes: Vec<u8>) -> GenericResult<image::DynamicImage> {
-    Ok(image::io::Reader::new(std::io::Cursor::new(bytes))
+    Ok(image::ImageReader::new(std::io::Cursor::new(bytes))
         .with_guessed_format()?
         .decode()?)
 }

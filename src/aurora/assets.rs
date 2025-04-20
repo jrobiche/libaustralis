@@ -583,7 +583,7 @@ impl Asset {
         asset_type: AssetType,
         texture_format: TextureFormat,
     ) -> GenericResult<()> {
-        let image = image::io::Reader::open(file_path)?.decode()?;
+        let image = image::ImageReader::open(file_path)?.decode()?;
         self.set_image(image, asset_type, texture_format)
     }
 

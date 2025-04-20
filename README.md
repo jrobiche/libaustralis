@@ -2,7 +2,7 @@
 
 ## Description
 
-`libaustralis` defines common structures and functions that can be used for interacting with the Aurora Xbox 360 Dashboard.
+A library of common structures and functions that can be used for interacting with the Aurora Xbox 360 Dashboard.
 
 ## License
 
