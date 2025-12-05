@@ -144,6 +144,9 @@ impl HttpClient {
         token: Option<&str>,
     ) -> GenericResult<Vec<http_schemas::Achievement>> {
         let resp = self.get(token, "/achievement", None).await?;
+        if resp.status() == reqwest::StatusCode::NO_CONTENT {
+            return Ok(Vec::new());
+        }
         match resp.json::<Vec<http_schemas::Achievement>>().await {
             Ok(x) => Ok(x),
             Err(err) => {

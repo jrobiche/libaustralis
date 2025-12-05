@@ -1,6 +1,6 @@
 [package]
 name = "libaustralis"
-version = "0.1.0"
+version = "0.2.0"
 description = "A library of common structures and functions that can be used for interacting with the Aurora Xbox 360 Dashboard."
 authors = ["jrobiche"]
 license = "GPL-3.0-or-later"
@@ -13,7 +13,7 @@ rust-version = "1.83.0"
 [dependencies]
 image = "0.25.6"
 log = "0.4.27"
-reqwest = { version = "0.12.15", default-features = false, features = ["json"] }
+reqwest = { version = "0.12.15", default-features = false, features = ["json", "rustls-tls"] }
 serde = { version = "1.0.219", features = ["derive"] }
 suppaftp = "6.2.0"
 texpresso = "2.0.1"
