@@ -1,6 +1,6 @@
 [package]
 name = "libaustralis"
-version = "0.1.0"
+version = "0.2.0"
 description = "A library of common structures and functions that can be used for interacting with the Aurora Xbox 360 Dashboard."
 authors = ["jrobiche"]
 license = "GPL-3.0-or-later"
