@@ -22,9 +22,8 @@
 use std::io::Write;
 use std::path::Path;
 
-use log::{debug, error, warn};
-
 use crate::utils::{create_parent_directories, GenericResult};
+use log::{debug, error, warn};
 
 #[derive(Clone, Debug)]
 pub struct FtpClient {

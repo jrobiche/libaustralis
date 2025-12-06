@@ -18,3 +18,5 @@
  */
 pub mod aurora;
 pub mod utils;
+pub mod xboxcatalog;
+pub mod xboxunity;
