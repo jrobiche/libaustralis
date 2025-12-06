@@ -11,10 +11,10 @@ rust-version = "1.83.0"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-image = "0.25.6"
-log = "0.4.27"
-reqwest = { version = "0.12.15", default-features = false, features = ["json", "rustls-tls"] }
-serde = { version = "1.0.219", features = ["derive"] }
-suppaftp = "6.2.0"
-texpresso = "2.0.1"
-xml-rs = "0.8.27"
+image = "0.25.9"
+log = "0.4.29"
+reqwest = { version = "0.12.24", default-features = false, features = ["json", "rustls-tls"] }
+serde = { version = "1.0.228", features = ["derive"] }
+suppaftp = "7.0.7"
+texpresso = "2.0.2"
+xml-rs = "1.0.0"
