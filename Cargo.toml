@@ -13,8 +13,10 @@ rust-version = "1.83.0"
 [dependencies]
 image = "0.25.9"
 log = "0.4.29"
+regex = "1.12.2"
 reqwest = { version = "0.12.24", default-features = false, features = ["json", "rustls-tls"] }
 serde = { version = "1.0.228", features = ["derive"] }
 suppaftp = "7.0.7"
+telnet = "0.2.4"
 texpresso = "2.0.2"
 xml-rs = "1.0.0"
