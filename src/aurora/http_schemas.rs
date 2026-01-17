@@ -1,5 +1,5 @@
 /**
- * Copyright 2025 jrobiche
+ * Copyright 2025-2026 jrobiche
  *
  * This file is part of libaustralis.
  *
