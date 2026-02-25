@@ -1,5 +1,5 @@
 /**
- * Copyright 2025 jrobiche
+ * Copyright 2025-2026 jrobiche
  *
  * This file is part of libaustralis.
  *
@@ -17,6 +17,7 @@
  * libaustralis. If not, see <https://www.gnu.org/licenses/>.
  */
 pub mod aurora;
+pub mod telnet;
 pub mod utils;
 pub mod xboxcatalog;
 pub mod xboxunity;

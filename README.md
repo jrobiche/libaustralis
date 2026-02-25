@@ -10,10 +10,19 @@ This code is licensed under [GPL-3.0-or-later](./COPYING).
 
 ## Features
 
-|       Status       | Feature                                                                 |
-| :----------------: | ----------------------------------------------------------------------- |
-| :white_check_mark: | Create, read, and modify Aurora asset files                             |
-| :white_check_mark: | FTP client that is compatible with the Aurora FTP server                |
-| :white_check_mark: | HTTP client that is compatible with the Aurora HTTP server and REST API |
-| :white_check_mark: | Retrieve titles and covers on XboxUnity                                 |
-| :white_check_mark: | Retrieve assets on Xbox Catalog                                         |
+- Aurora
+  - Create, read, and modify asset files
+  - FTP client
+  - HTTP client
+- Telnet
+  - Run arbitrary telnet commands
+- Utils
+  - Common general purpose structures and functions to be used by other modules in this crate
+- Xbox Catalog
+  - Query game information
+  - Query game images
+- XboxUnity
+  - Query titles
+  - Query title images
+
+For full documentation run `cargo doc` and open the generated `index.html` file in a browser.

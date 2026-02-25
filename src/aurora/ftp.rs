@@ -1,5 +1,5 @@
 /**
- * Copyright 2025 jrobiche
+ * Copyright 2025-2026 jrobiche
  *
  * This file is part of libaustralis.
  *
@@ -475,7 +475,7 @@ fn list_directory_contents(
         }
     };
     for entry in entries {
-        contents.push(suppaftp::list::File::from_posix_line(&entry)?);
+        contents.push(suppaftp::list::ListParser::parse_posix(&entry)?);
     }
     // restore original cwd
     debug!("List Directory Contents: calling cwd('{}')", original_cwd);
