@@ -20,6 +20,7 @@
 // TODO document functions
 // TODO improve logging
 pub use image;
+use image::{imageops, DynamicImage, ImageReader, RgbaImage};
 use std::fmt;
 use std::path::Path;
 
@@ -279,17 +280,10 @@ impl fmt::Display for TextureFormat {
 }
 
 impl TextureFormat {
-    pub fn bytes_per_pixel(&self) -> usize {
+    pub fn bytes_per_pixel(&self) -> u32 {
         match self {
             TextureFormat::RGBA8 => 4,
             TextureFormat::BC3 => 1,
-        }
-    }
-
-    pub fn bytes_per_pixel_u32(&self) -> u32 {
-        match self {
-            TextureFormat::RGBA8 => 4 as u32,
-            TextureFormat::BC3 => 1 as u32,
         }
     }
 
@@ -336,6 +330,7 @@ impl Asset {
     ////////////////////////////////////////////////////////////////////////////////
     // methods related to the entire asset file
     ////////////////////////////////////////////////////////////////////////////////
+    /// Create a new Asset with no images defined
     pub fn new() -> Self {
         Self {
             header: Header::new(),
@@ -343,19 +338,22 @@ impl Asset {
         }
     }
 
+    /// Create an Asset from a file
     pub fn load(file_path: &Path) -> GenericResult<Self> {
         Self::from_be_bytes(&std::fs::read(file_path)?)
     }
 
+    /// Copy the Asset into a buffer and write it to a file
     pub fn save(&self, file_path: &Path) -> GenericResult<()> {
         create_parent_directories(&file_path)?;
         std::fs::write(&file_path, self.to_be_bytes())?;
         Ok(())
     }
 
+    /// Create an Asset from a buffer
     pub fn from_be_bytes(buffer: &Vec<u8>) -> GenericResult<Self> {
         if buffer.len() < 0x800 {
-            let msg = "Could not create Asset from BE bytes. Not enough bytes to be a valid Asset.";
+            let msg = format!("Could not create Asset from BE byes. Buffer must have at least 2048 bytes but given buffer has {} bytes.", buffer.len());
             return Err(msg.into());
         }
         let header = Header::from_be_bytes(buffer)?;
@@ -366,6 +364,7 @@ impl Asset {
         Ok(Self { header, image_data })
     }
 
+    /// Copy the Asset into a buffer
     pub fn to_be_bytes(&self) -> Vec<u8> {
         let mut buffer = self.header.to_be_bytes();
         buffer.extend(&self.image_data);
@@ -375,6 +374,41 @@ impl Asset {
     ////////////////////////////////////////////////////////////////////////////////
     // methods related to asset images
     ////////////////////////////////////////////////////////////////////////////////
+    /// Delete an image from the Asset
+    pub fn delete_image(&mut self, asset_type: AssetType) -> GenericResult<()> {
+        let deleted_entry_image_data_index =
+            self.header.asset_packs[asset_type.as_usize()].image_data_index;
+        let deleted_entry_image_data_length =
+            self.header.asset_packs[asset_type.as_usize()].image_data_length;
+        // remove bytes from `image_data` that belong to entry being removed
+        {
+            let image_data_index = usize::try_from(deleted_entry_image_data_index)?;
+            let image_data_length = usize::try_from(deleted_entry_image_data_length)?;
+            let drain_start = image_data_index;
+            let drain_end = drain_start.saturating_add(image_data_length);
+            self.image_data.drain(drain_start..drain_end);
+        }
+        // update header information
+        self.header.asset_types_flag &= !(1 << asset_type.as_usize());
+        self.header.image_data_length = u32::try_from(self.image_data.len())?;
+        if deleted_entry_image_data_length > 0 && asset_type.is_screenshot() {
+            self.header.screenshot_count = self.header.screenshot_count.saturating_sub(1);
+        }
+        self.header.asset_packs[asset_type.as_usize()] = AssetPackEntry::new();
+        // adjust `image_data_index` for all entries that have an `image_data_index` greater
+        // than the `image_data_index` of the asset pack entry that was removed
+        for asset_type in AssetType::into_iter() {
+            let asset_pack = &mut self.header.asset_packs[asset_type.as_usize()];
+            if asset_pack.image_data_index > deleted_entry_image_data_index {
+                asset_pack.image_data_index = asset_pack
+                    .image_data_index
+                    .saturating_sub(deleted_entry_image_data_length);
+            }
+        }
+        Ok(())
+    }
+
+    /// Save an image defined in the Asset to a file
     pub fn export_image(
         &self,
         asset_type: AssetType,
@@ -394,50 +428,29 @@ impl Asset {
         Ok(result)
     }
 
+    /// Load an image into the Asset from a file
+    ///
+    /// If unsure of which TextureEndian to use, pass `TextureEndian::Endian8in16`
     pub fn import_image(
         &mut self,
         file_path: &Path,
         asset_type: AssetType,
+        texture_endian: TextureEndian,
         texture_format: TextureFormat,
     ) -> GenericResult<()> {
-        let image = image::ImageReader::open(file_path)?.decode()?;
-        self.set_image(image, asset_type, texture_format)
+        let image = ImageReader::open(file_path)?.decode()?;
+        self.set_image(image, asset_type, texture_endian, texture_format)
     }
 
-    pub fn delete_image(&mut self, asset_type: AssetType) -> GenericResult<()> {
-        let entry_image_data_index_u32 =
-            self.header.asset_packs[asset_type.as_usize()].image_data_index;
-        let entry_image_data_index_usize = usize::try_from(entry_image_data_index_u32)?;
-        let entry_image_data_length_u32 =
-            self.header.asset_packs[asset_type.as_usize()].image_data_length;
-        let entry_image_data_length_usize = usize::try_from(entry_image_data_length_u32)?;
-        // remove bytes from `image_data` that belong to entry being removed
-        self.image_data.drain(
-            entry_image_data_index_usize
-                ..(entry_image_data_index_usize.saturating_add(entry_image_data_length_usize)),
-        );
-        // update header information
-        self.header.asset_types_flag &= !(1 << asset_type.as_usize());
-        self.header.image_data_length = u32::try_from(self.image_data.len())?;
-        if entry_image_data_length_usize > 0 && asset_type.is_screenshot() {
-            self.header.screenshot_count = self.header.screenshot_count.saturating_sub(1);
-        }
-        self.header.asset_packs[asset_type.as_usize()] = AssetPackEntry::new();
-        // adjust `image_data_index` for all entries that have an `image_data_index` greater
-        // than the `image_data_index` of the asset pack entry being removed
-        for asset_type in AssetType::into_iter() {
-            let asset_pack = &mut self.header.asset_packs[asset_type.as_usize()];
-            if asset_pack.image_data_index > entry_image_data_index_u32 {
-                asset_pack.image_data_index = asset_pack
-                    .image_data_index
-                    .saturating_sub(entry_image_data_length_u32);
-            }
-        }
-        Ok(())
+    /// Returns `true` if the given AssetType has an image defined; otherwise, returns `false`
+    pub fn has_image(&self, asset_type: AssetType) -> bool {
+        self.header.asset_types_flag & (1 << asset_type.as_u32()) != 0
     }
 
-    // TODO review
-    pub fn image(&self, asset_type: AssetType) -> GenericResult<Option<image::DynamicImage>> {
+    /// Get the image defined for the given AssetType as a `DynamicImage`
+    ///
+    /// Returns `None` if no image is defined for the given AssetType
+    pub fn image(&self, asset_type: AssetType) -> GenericResult<Option<DynamicImage>> {
         if !self.has_image(asset_type) {
             return Ok(None);
         }
@@ -458,169 +471,211 @@ impl Asset {
         Ok(image)
     }
 
-    // TODO review
-    pub fn image_rgba8(&self, asset_type: AssetType) -> GenericResult<Option<Vec<u8>>> {
-        if !self.has_image(asset_type) {
-            return Ok(None);
-        }
-        let rgba8 = match self.image(asset_type)? {
-            Some(image) => match image.as_rgba8() {
-                Some(rgba8_image) => Some(rgba8_image.clone().into_vec()),
-                None => {
-                    let msg = format!(
-                        "Failed to create RGBA8 image for asset type '{}'.",
-                        asset_type
-                    );
-                    return Err(msg.into());
-                }
-            },
-            None => None,
-        };
-        Ok(rgba8)
-    }
-
-    // TODO review
-    // TODO make private method that contains the complex logic so that multiple public methods can easily call it
+    /// Set the image for the given AssetType from a `DynamicImage`
+    ///
+    /// If unsure of which TextureEndian to use, pass `TextureEndian::Endian8in16`
     pub fn set_image(
         &mut self,
-        image: image::DynamicImage,
+        image: DynamicImage,
         asset_type: AssetType,
+        texture_endian: TextureEndian,
         texture_format: TextureFormat,
     ) -> GenericResult<()> {
-        let endian = TextureEndian::Endian8in16;
+        // TODO make params?
         let swizzle_x: u32 = 0;
         let swizzle_y: u32 = 1;
         let swizzle_z: u32 = 2;
         let swizzle_w: u32 = 3;
-        let padded_image = Self::pad_image(&image);
-        let mut padded_image_rgba8 = match padded_image.as_rgba8() {
-            Some(rgba8_image) => rgba8_image.clone().into_vec(),
-            None => {
-                let msg = format!(
-                    "Failed to create RGBA8 padded image for asset type '{}'.",
-                    asset_type
-                );
-                return Err(msg.into());
-            }
-        };
+        // delete existing image
         self.delete_image(asset_type)?;
-        apply_swizzle(
-            &mut padded_image_rgba8,
-            usize::try_from(swizzle_x)?,
-            usize::try_from(swizzle_y)?,
-            usize::try_from(swizzle_z)?,
-            usize::try_from(swizzle_w)?,
-        );
-        let mut padded_image_rgba8 = Self::compress_image_data(
-            padded_image_rgba8,
-            texture_format,
-            usize::try_from(padded_image.width())?,
-            usize::try_from(padded_image.height())?,
-        )?;
-        apply_endian(&mut padded_image_rgba8, endian);
+        // create a `new_image_data` array that will be appended to `self.image_data`
+        let mut new_image_data: Vec<u8>;
+        {
+            let mut padded_image = image.clone();
+            pad_image(&mut padded_image);
+            new_image_data = match padded_image.as_rgba8() {
+                Some(rgba8_image) => rgba8_image.clone().into_vec(),
+                None => {
+                    let msg = format!(
+                        "Failed to create RGBA8 padded image for asset type '{}'.",
+                        asset_type
+                    );
+                    return Err(msg.into());
+                }
+            };
+            let swizzle_x = usize::try_from(swizzle_x)?;
+            let swizzle_y = usize::try_from(swizzle_y)?;
+            let swizzle_z = usize::try_from(swizzle_z)?;
+            let swizzle_w = usize::try_from(swizzle_w)?;
+            apply_swizzle(
+                &mut new_image_data,
+                swizzle_x,
+                swizzle_y,
+                swizzle_z,
+                swizzle_w,
+            );
+            compress_image_data(
+                &mut new_image_data,
+                texture_format,
+                padded_image.width(),
+                padded_image.height(),
+            )?;
+            apply_endian(&mut new_image_data, texture_endian);
+        }
         // update asset header and image_data
-        let asset_pack_entry = &mut self.header.asset_packs[asset_type.as_usize()];
-        let texture_header = &mut asset_pack_entry.texture_header;
-        let gpu_fetch = &mut texture_header.gpu_texture_fetch;
-        asset_pack_entry.image_data_index = u32::try_from(self.image_data.len())?;
-        asset_pack_entry.image_data_length = u32::try_from(padded_image_rgba8.len())?;
-        texture_header.common = 3;
-        texture_header.reference_count = 1;
-        texture_header.base_flush = 0xFFFF0000;
-        texture_header.mip_flush = 0xFFFF0000;
-        gpu_fetch.set_pitch(u32::div_ceil(image.width(), 32));
-        gpu_fetch.set_fetch_constant_type(2);
-        gpu_fetch.set_endian(endian);
-        gpu_fetch.set_texture_format(texture_format);
-        gpu_fetch.set_swizzle_w(swizzle_w);
-        gpu_fetch.set_swizzle_z(swizzle_z);
-        gpu_fetch.set_swizzle_y(swizzle_y);
-        gpu_fetch.set_swizzle_x(swizzle_x);
-        gpu_fetch.set_packed_mips(1);
-        gpu_fetch.set_dimension(1);
-        gpu_fetch.set_width(image.width().saturating_sub(1))?;
-        gpu_fetch.set_height(image.height().saturating_sub(1))?;
-        self.image_data.extend_from_slice(&padded_image_rgba8);
-        self.header.image_data_length = u32::try_from(self.image_data.len())?;
-        if asset_type.is_screenshot() {
-            self.header.screenshot_count += 1;
+        {
+            let asset_pack_entry = &mut self.header.asset_packs[asset_type.as_usize()];
+            asset_pack_entry.image_data_index = u32::try_from(self.image_data.len())?;
+            asset_pack_entry.image_data_length = u32::try_from(new_image_data.len())?;
+            let texture_header = &mut asset_pack_entry.texture_header;
+            texture_header.common = 3;
+            texture_header.reference_count = 1;
+            texture_header.base_flush = 0xFFFF0000;
+            texture_header.mip_flush = 0xFFFF0000;
+            let gpu_fetch = &mut texture_header.gpu_texture_fetch;
+            gpu_fetch.set_pitch(u32::div_ceil(image.width(), 32));
+            gpu_fetch.set_fetch_constant_type(2);
+            gpu_fetch.set_endian(texture_endian);
+            gpu_fetch.set_texture_format(texture_format);
+            gpu_fetch.set_swizzle_w(swizzle_w);
+            gpu_fetch.set_swizzle_z(swizzle_z);
+            gpu_fetch.set_swizzle_y(swizzle_y);
+            gpu_fetch.set_swizzle_x(swizzle_x);
+            gpu_fetch.set_packed_mips(1);
+            gpu_fetch.set_dimension(1);
+            gpu_fetch.set_width(image.width().saturating_sub(1))?;
+            gpu_fetch.set_height(image.height().saturating_sub(1))?;
+            self.image_data.extend_from_slice(&new_image_data);
+            self.header.image_data_length = u32::try_from(self.image_data.len())?;
+            if asset_type.is_screenshot() {
+                self.header.screenshot_count += 1;
+            }
+            self.header.asset_types_flag |= 1 << asset_type.as_usize();
         }
-        self.header.asset_types_flag |= 1 << asset_type.as_usize();
         Ok(())
-    }
-
-    // TODO review
-    pub fn set_image_from_rgba8(
-        &mut self,
-        width: u32,
-        height: u32,
-        rgba8: Vec<u8>,
-        asset_type: AssetType,
-        texture_format: TextureFormat,
-    ) -> GenericResult<()> {
-        let rgba8_len = rgba8.len();
-        match image::RgbaImage::from_raw(width, height, rgba8) {
-            Some(image_buffer) => {
-                let image = image::DynamicImage::ImageRgba8(image_buffer);
-                self.set_image(image, asset_type, texture_format)
-            }
-            None => {
-                let msg = format!(
-                    "Failed to create image with width {} and height {} from {} bytes of RGBA data.",
-                    width, height, rgba8_len
-                );
-                Err(msg.into())
-            }
-        }
-    }
-
-    pub fn has_image(&self, asset_type: AssetType) -> bool {
-        self.header.asset_types_flag & (1 << asset_type.as_usize()) != 0
     }
 
     ////////////////////////////////////////////////////////////////////////////////
     // private methods
     ////////////////////////////////////////////////////////////////////////////////
-    // TODO review
-    fn compress_image_data(
-        image_data: Vec<u8>,
-        texture_format: TextureFormat,
-        width: usize,
-        height: usize,
-    ) -> GenericResult<Vec<u8>> {
-        match texture_format {
-            TextureFormat::RGBA8 => Ok(image_data.clone()),
-            TextureFormat::BC3 => {
-                let bc3 = texpresso::Format::Bc3;
-                let mut compressed_image_data: Vec<u8> =
-                    vec![0; bc3.compressed_size(width, height)];
-                bc3.compress(
-                    &image_data,
-                    width,
-                    height,
-                    texpresso::Params::default(),
-                    &mut compressed_image_data,
-                );
-                Ok(compressed_image_data)
-            }
+    fn padded_image(&self, asset_type: AssetType) -> GenericResult<Option<DynamicImage>> {
+        if !self.has_image(asset_type) {
+            return Ok(None);
         }
+        let (image_width, image_height) = match self.padded_image_dimensions(asset_type)? {
+            (Some(w), Some(h), None) => (w, h),
+            _ => {
+                let msg = format!(
+                    "Could not determine padded image dimensions for asset type '{}'.",
+                    asset_type
+                );
+                return Err(msg.into());
+            }
+        };
+        let rgba8_bytes = self.padded_image_rgba8(asset_type)?;
+        let rgba8_bytes_len = &rgba8_bytes.len();
+        let image = match RgbaImage::from_raw(image_width, image_height, rgba8_bytes) {
+            Some(image_buffer) => DynamicImage::ImageRgba8(image_buffer),
+            None => {
+                let msg = format!(
+                    "Failed to create image with width {} and height {} from {} bytes of RGBA data.",
+                    image_width, image_height, rgba8_bytes_len
+                );
+                return Err(msg.into());
+            }
+        };
+        Ok(Some(image))
     }
 
-    // TODO review
-    fn decompress_image_data(
-        image_data: Vec<u8>,
-        texture_format: TextureFormat,
-        width: usize,
-        height: usize,
-    ) -> GenericResult<Vec<u8>> {
-        match texture_format {
-            TextureFormat::RGBA8 => Ok(image_data.clone()),
-            TextureFormat::BC3 => {
-                let mut rgba8 = vec![0; width * height * TextureFormat::RGBA8.bytes_per_pixel()];
-                texpresso::Format::Bc3.decompress(&image_data, width, height, &mut rgba8);
-                Ok(rgba8)
-            }
+    fn padded_image_dimensions(
+        &self,
+        asset_type: AssetType,
+    ) -> GenericResult<(Option<u32>, Option<u32>, Option<u32>)> {
+        if !self.has_image(asset_type) {
+            return Ok((None, None, None));
         }
+        let pitch = self.header.asset_packs[asset_type.as_usize()]
+            .texture_header
+            .gpu_texture_fetch
+            .pitch();
+        if pitch == 0 {
+            let msg = "Cannot calculate image dimensions because pitch is 0.";
+            return Err(msg.into());
+        }
+        let gpu_fetch = &self.header.asset_packs[asset_type.as_usize()]
+            .texture_header
+            .gpu_texture_fetch;
+        if gpu_fetch.stacked() || gpu_fetch.dimension() != 1 {
+            let msg = "Cannot calculate padded image dimensions for image that is stacked or not 2 dimensional.";
+            return Err(msg.into());
+        }
+        let image_data_length = &self.header.asset_packs[asset_type.as_usize()].image_data_length;
+        let bytes_per_pixel = gpu_fetch.texture_format()?.bytes_per_pixel();
+        let width = 32 * pitch;
+        let height = image_data_length / (width * bytes_per_pixel);
+        Ok((Some(width), Some(height), None))
+    }
+
+    fn padded_image_rgba8(&self, asset_type: AssetType) -> GenericResult<Vec<u8>> {
+        let mut rgba8: Vec<u8> = Vec::new();
+        if !self.has_image(asset_type) {
+            return Ok(rgba8);
+        }
+        // load bytes from `image_data` that belong to `asset_type`'s image into `rgba8`
+        // note: at this point, the bytes in `rgba8` variable may not be of the form RGBA8
+        {
+            let asset_pack_entry = &self.header.asset_packs[asset_type.as_usize()];
+            let image_data_length = usize::try_from(asset_pack_entry.image_data_length)?;
+            let image_data_index_start = usize::try_from(asset_pack_entry.image_data_index)?;
+            let image_data_index_end = image_data_index_start.saturating_add(image_data_length);
+            if image_data_index_end > self.image_data.len() {
+                let msg = format!(
+                    "Asset type '{}' requested image data range [{}, {}], but the length of all image data is only {}.",
+                    asset_type,
+                    image_data_index_start,
+                    image_data_index_end,
+                    &self.image_data.len(),
+                );
+                return Err(msg.into());
+            }
+            rgba8.extend_from_slice(&self.image_data[image_data_index_start..image_data_index_end]);
+        }
+        // apply endian, decompression, and swizzle so that `rgba8` will be a Vec<u8> of RGBA8 bytes
+        {
+            let (image_width, image_height) = match self.padded_image_dimensions(asset_type)? {
+                (Some(w), Some(h), None) => (w, h),
+                _ => {
+                    let msg = format!(
+                        "Could not get image data as RGBA8 for asset type '{}'. Failed to determine padded image dimensions.",
+                        asset_type
+                    );
+                    return Err(msg.into());
+                }
+            };
+            apply_endian(
+                &mut rgba8,
+                self.header.asset_packs[asset_type.as_usize()]
+                    .texture_header
+                    .gpu_texture_fetch
+                    .endian()?,
+            );
+            let texture_format = self.header.asset_packs[asset_type.as_usize()]
+                .texture_header
+                .gpu_texture_fetch
+                .texture_format()?;
+            decompress_image_data(&mut rgba8, texture_format, image_width, image_height)?;
+            let gpu_fetch = &self.header.asset_packs[asset_type.as_usize()]
+                .texture_header
+                .gpu_texture_fetch;
+            apply_swizzle(
+                &mut rgba8,
+                usize::try_from(gpu_fetch.swizzle_x())?,
+                usize::try_from(gpu_fetch.swizzle_y())?,
+                usize::try_from(gpu_fetch.swizzle_z())?,
+                usize::try_from(gpu_fetch.swizzle_w())?,
+            );
+        }
+        Ok(rgba8)
     }
 
     fn image_dimensions(&self, asset_type: AssetType) -> (Option<u32>, Option<u32>, Option<u32>) {
@@ -643,107 +698,6 @@ impl Asset {
             None => None,
         };
         (width, height, depth)
-    }
-
-    // TODO review
-    fn pad_image(image: &image::DynamicImage) -> image::DynamicImage {
-        let width = 32 * u32::div_ceil(image.width(), 32);
-        let height = 32 * u32::div_ceil(image.height(), 32);
-        let mut padded_image = image::DynamicImage::new_rgba8(width, height);
-        image::imageops::overlay(&mut padded_image, image, 0, 0);
-        padded_image
-    }
-
-    // TODO review
-    fn padded_image(&self, asset_type: AssetType) -> GenericResult<Option<image::DynamicImage>> {
-        if !self.has_image(asset_type) {
-            return Ok(None);
-        }
-        let asset_pack_entry = &self.header.asset_packs[asset_type.as_usize()];
-        let gpu_fetch = &asset_pack_entry.texture_header.gpu_texture_fetch;
-        let image_data_length = usize::try_from(asset_pack_entry.image_data_length)?;
-        let image_data_index = usize::try_from(asset_pack_entry.image_data_index)?;
-        let (image_width, image_height) = match self.padded_image_dimensions(asset_type)? {
-            (Some(w), Some(h), None) => (w, h),
-            _ => {
-                let msg = format!(
-                    "Could not determine padded image dimensions for asset type '{}'.",
-                    asset_type
-                );
-                return Err(msg.into());
-            }
-        };
-        // determine which bytes in `image_data` correspond to texture for `asset_type`
-        let image_data_index_end = image_data_index.saturating_add(image_data_length);
-        if self.image_data.len() < image_data_index_end {
-            let msg = format!(
-                "Asset type '{}' requested image data range [{}, {}], but the length of all image data is only {}.",
-                asset_type,
-                image_data_index,
-                image_data_index_end,
-                &self.image_data.len(),
-            );
-            return Err(msg.into());
-        }
-        let mut entry_image_data: Vec<u8> = vec![0; image_data_length];
-        entry_image_data.copy_from_slice(
-            &self.image_data[image_data_index..image_data_index.saturating_add(image_data_length)],
-        );
-        // apply endian, decompression, and swizzle to image's rgba8 bytes
-        apply_endian(
-            &mut entry_image_data,
-            asset_pack_entry.texture_header.gpu_texture_fetch.endian()?,
-        );
-        let mut image_rgba8 = Self::decompress_image_data(
-            entry_image_data,
-            gpu_fetch.texture_format()?,
-            usize::try_from(image_width)?,
-            usize::try_from(image_height)?,
-        )?;
-        apply_swizzle(
-            &mut image_rgba8,
-            usize::try_from(gpu_fetch.swizzle_x())?,
-            usize::try_from(gpu_fetch.swizzle_y())?,
-            usize::try_from(gpu_fetch.swizzle_z())?,
-            usize::try_from(gpu_fetch.swizzle_w())?,
-        );
-        let image_rgba8_len = &image_rgba8.len();
-        let image = match image::RgbaImage::from_raw(image_width, image_height, image_rgba8) {
-            Some(image_buffer) => image::DynamicImage::ImageRgba8(image_buffer),
-            None => {
-                let msg = format!(
-                    "Failed to create image with width {} and height {} from {} bytes of RGBA data.",
-                    image_width, image_height, image_rgba8_len
-                );
-                return Err(msg.into());
-            }
-        };
-        Ok(Some(image))
-    }
-
-    // TODO review
-    fn padded_image_dimensions(
-        &self,
-        asset_type: AssetType,
-    ) -> GenericResult<(Option<u32>, Option<u32>, Option<u32>)> {
-        if !self.has_image(asset_type) {
-            return Ok((None, None, None));
-        }
-        let asset_pack = &self.header.asset_packs[asset_type.as_usize()];
-        let gpu_fetch = &asset_pack.texture_header.gpu_texture_fetch;
-        let pitch = gpu_fetch.pitch();
-        let texture_format = gpu_fetch.texture_format()?;
-        if pitch == 0 {
-            let msg = "Cannot calculate image dimensions because pitch is 0.";
-            return Err(msg.into());
-        }
-        if gpu_fetch.stacked() || gpu_fetch.dimension() != 1 {
-            let msg = "Cannot calculate padded image dimensions of image that is stacked or not 2 dimensional.";
-            return Err(msg.into());
-        }
-        let width = 32 * pitch;
-        let height = &asset_pack.image_data_length / (width * texture_format.bytes_per_pixel_u32());
-        Ok((Some(width), Some(height), None))
     }
 }
 
@@ -800,7 +754,13 @@ impl Header {
     }
 
     pub fn from_be_bytes(buffer: &Vec<u8>) -> GenericResult<Self> {
-        // TODO validate buffer size
+        if buffer.len() < 2048 {
+            let msg = format!(
+                "Could not create Header from BE byes. Buffer must at least 2048 bytes but given buffer has {} bytes.",
+                buffer.len()
+            );
+            return Err(msg.into());
+        }
         let magic = u32::from_be_bytes(buffer[0x0..0x4].try_into()?);
         let version = u32::from_be_bytes(buffer[0x4..0x8].try_into()?);
         let image_data_length = u32::from_be_bytes(buffer[0x8..0xC].try_into()?);
@@ -874,7 +834,13 @@ impl AssetPackEntry {
     }
 
     pub fn from_be_bytes(buffer: Vec<u8>) -> GenericResult<Self> {
-        // TODO validate buffer size
+        if buffer.len() < 64 {
+            let msg = format!(
+                "Could not create AssetPackEntry from BE byes. Buffer must be at least 64 bytes but given buffer has {} bytes.",
+                buffer.len()
+            );
+            return Err(msg.into());
+        }
         let image_data_index = u32::from_be_bytes(buffer[0x0..0x4].try_into()?);
         let image_data_length = u32::from_be_bytes(buffer[0x4..0x8].try_into()?);
         let extended_info = u32::from_be_bytes(buffer[0x8..0xC].try_into()?);
@@ -950,7 +916,13 @@ impl AssetPackTextureHeader {
     }
 
     pub fn from_be_bytes(buffer: Vec<u8>) -> GenericResult<Self> {
-        // TODO validate buffer size
+        if buffer.len() < 52 {
+            let msg = format!(
+                "Could not create AssetPackTextureHeader from BE byes. Buffer must be at least 52 bytes but given buffer has {} bytes.",
+                buffer.len()
+            );
+            return Err(msg.into());
+        }
         let common = u32::from_be_bytes(buffer[0x0..0x4].try_into()?);
         let reference_count = u32::from_be_bytes(buffer[0x4..0x8].try_into()?);
         let fence = u32::from_be_bytes(buffer[0x8..0xC].try_into()?);
@@ -1126,7 +1098,13 @@ impl GPUTextureFetch {
     }
 
     pub fn from_be_bytes(buffer: Vec<u8>) -> GenericResult<Self> {
-        // TODO validate buffer size
+        if buffer.len() < 24 {
+            let msg = format!(
+                "Could not create GPUTexutreFetch from BE byes. Buffer must be at least 24 bytes but given buffer has {} bytes.",
+                buffer.len()
+            );
+            return Err(msg.into());
+        }
         let constant0 = u32::from_be_bytes(buffer[0x00..0x04].try_into()?);
         let constant1 = u32::from_be_bytes(buffer[0x04..0x08].try_into()?);
         let constant2 = u32::from_be_bytes(buffer[0x08..0x0C].try_into()?);
@@ -1155,14 +1133,6 @@ impl GPUTextureFetch {
     }
 
     // Fetch Constant 0 Properties
-    pub fn constant0(&self) -> u32 {
-        self.constant0
-    }
-
-    pub fn set_constant0(&mut self, constant0: u32) -> () {
-        self.constant0 = constant0
-    }
-
     pub fn tiled(&self) -> bool {
         (self.constant0 & 0x80000000) >> 31 != 0
     }
@@ -1260,10 +1230,6 @@ impl GPUTextureFetch {
     }
 
     // Fetch Constant 1 Properties
-    pub fn constant1(&self) -> u32 {
-        self.constant1
-    }
-
     pub fn base_address(&self) -> u32 {
         (self.constant1 & 0xFFFFF000) >> 12
     }
@@ -1322,10 +1288,6 @@ impl GPUTextureFetch {
     }
 
     // Fetch Constant 2 Properties
-    pub fn constant2(&self) -> u32 {
-        self.constant2
-    }
-
     pub fn depth(&self) -> Option<u32> {
         match (self.stacked(), self.dimension()) {
             (false, 2) => Some((self.constant2 & 0xFFC00000) >> 22),
@@ -1428,10 +1390,6 @@ impl GPUTextureFetch {
     }
 
     // Fetch Constant 3 Properties
-    pub fn constant3(&self) -> u32 {
-        self.constant3
-    }
-
     pub fn border_size(&self) -> u32 {
         (self.constant3 & 0x80000000) >> 31
     }
@@ -1529,10 +1487,6 @@ impl GPUTextureFetch {
     }
 
     // Fetch Constant 4 Properties
-    pub fn constant4(&self) -> u32 {
-        self.constant4
-    }
-
     pub fn grad_exp_adjust_v(&self) -> u32 {
         (self.constant4 & 0xF8000000) >> 27
     }
@@ -1606,10 +1560,6 @@ impl GPUTextureFetch {
     }
 
     // Fetch Constant 5 Properties
-    pub fn constant5(&self) -> u32 {
-        self.constant5
-    }
-
     pub fn mip_address(&self) -> u32 {
         (self.constant5 & 0xFFFFF000) >> 12
     }
@@ -1667,7 +1617,7 @@ impl GPUTextureFetch {
     }
 }
 
-pub fn apply_endian(buffer: &mut Vec<u8>, texture_endian: TextureEndian) -> () {
+fn apply_endian(buffer: &mut Vec<u8>, texture_endian: TextureEndian) -> () {
     match texture_endian {
         TextureEndian::EndianNone => (),
         TextureEndian::Endian8in16 => {
@@ -1690,7 +1640,7 @@ pub fn apply_endian(buffer: &mut Vec<u8>, texture_endian: TextureEndian) -> () {
     }
 }
 
-pub fn apply_swizzle(
+fn apply_swizzle(
     buffer: &mut Vec<u8>,
     swizzle_x: usize,
     swizzle_y: usize,
@@ -1711,4 +1661,61 @@ pub fn apply_swizzle(
         buffer[i + 2] = z;
         buffer[i + 3] = w;
     }
+}
+
+fn compress_image_data(
+    image_data: &mut Vec<u8>,
+    texture_format: TextureFormat,
+    width: u32,
+    height: u32,
+) -> GenericResult<()> {
+    match texture_format {
+        TextureFormat::RGBA8 => Ok(()),
+        TextureFormat::BC3 => {
+            let bc3 = texpresso::Format::Bc3;
+            let width = usize::try_from(width)?;
+            let height = usize::try_from(height)?;
+            let mut compressed_image_data: Vec<u8> = vec![0; bc3.compressed_size(width, height)];
+            bc3.compress(
+                &image_data,
+                width,
+                height,
+                texpresso::Params::default(),
+                &mut compressed_image_data,
+            );
+            image_data.clear();
+            image_data.extend_from_slice(&compressed_image_data);
+            Ok(())
+        }
+    }
+}
+
+fn decompress_image_data(
+    image_data: &mut Vec<u8>,
+    texture_format: TextureFormat,
+    width: u32,
+    height: u32,
+) -> GenericResult<()> {
+    match texture_format {
+        TextureFormat::RGBA8 => Ok(()),
+        TextureFormat::BC3 => {
+            let width = usize::try_from(width)?;
+            let height = usize::try_from(height)?;
+            let bytes_per_pixel = usize::try_from(TextureFormat::RGBA8.bytes_per_pixel())?;
+            let mut rgba8 = vec![0; width * height * bytes_per_pixel];
+            texpresso::Format::Bc3.decompress(&image_data, width, height, &mut rgba8);
+            image_data.clear();
+            image_data.extend_from_slice(&rgba8);
+            Ok(())
+        }
+    }
+}
+
+fn pad_image(image: &mut DynamicImage) -> () {
+    let width = 32 * u32::div_ceil(image.width(), 32);
+    let height = 32 * u32::div_ceil(image.height(), 32);
+    let mut padded_image = DynamicImage::new_rgba8(width, height);
+    imageops::overlay(&mut padded_image, image, 0, 0);
+    *image = padded_image;
+    ()
 }
