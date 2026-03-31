@@ -18,5 +18,5 @@
 /// Structs and functions to interat with Aurora assets
 pub mod assets;
 pub mod ftp;
+/// Clients and functions to interact with the Aurora REST API
 pub mod http;
-pub mod http_schemas;
