@@ -24,6 +24,19 @@ use std::path::Path;
 pub type GenericError = Box<dyn std::error::Error + Send + Sync + 'static>;
 pub type GenericResult<T> = Result<T, GenericError>;
 
+pub fn create_file(path: &Path) -> GenericResult<std::fs::File> {
+    create_parent_directories(path)?;
+    let file = std::fs::File::create(path).map_err(|err| {
+        let msg = format!(
+            "Failed to create file at '{}'. Got the following error: {}",
+            path.display(),
+            err
+        );
+        msg
+    })?;
+    Ok(file)
+}
+
 pub fn create_parent_directories(file_path: &Path) -> GenericResult<()> {
     match Path::new(file_path).parent() {
         Some(parent_path) => match std::fs::create_dir_all(parent_path) {
